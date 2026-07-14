@@ -1,8 +1,45 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:uuid/uuid.dart';
 
 class LikeService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  // إضافة إعجاب
+  Future<void> likeVideo(String videoId, String uid) async {
+    try {
+      await _firestore
+          .collection('videos')
+          .doc(videoId)
+          .collection('likes')
+          .doc(uid)
+          .set({'uid': uid, 'timestamp': DateTime.now()});
+
+      // تحديث عدد الإعجابات
+      await _firestore.collection('videos').doc(videoId).update({
+        'likes': FieldValue.increment(1),
+      });
+    } catch (e) {
+      print('خطأ في إضافة الإعجاب: $e');
+    }
+  }
+
+  // إزالة إعجاب
+  Future<void> unlikeVideo(String videoId, String uid) async {
+    try {
+      await _firestore
+          .collection('videos')
+          .doc(videoId)
+          .collection('likes')
+          .doc(uid)
+          .delete();
+
+      // تحديث عدد الإعجابات
+      await _firestore.collection('videos').doc(videoId).update({
+        'likes': FieldValue.increment(-1),
+      });
+    } catch (e) {
+      print('خطأ في إزالة الإعجاب: $e');
+    }
+  }
 
   // التحقق من إعجاب المستخدم
   Future<bool> isLiked(String videoId, String uid) async {
@@ -17,53 +54,6 @@ class LikeService {
       return doc.exists;
     } catch (e) {
       print('خطأ في التحقق من الإعجاب: $e');
-      return false;
-    }
-  }
-
-  // إضافة إعجاب
-  Future<bool> likeVideo(String videoId, String uid) async {
-    try {
-      await _firestore
-          .collection('videos')
-          .doc(videoId)
-          .collection('likes')
-          .doc(uid)
-          .set({
-        'uid': uid,
-        'createdAt': DateTime.now(),
-      });
-
-      // زيادة عدد الإعجابات
-      await _firestore.collection('videos').doc(videoId).update({
-        'likes': FieldValue.increment(1),
-      });
-
-      return true;
-    } catch (e) {
-      print('خطأ في الإعجاب: $e');
-      return false;
-    }
-  }
-
-  // إلغاء الإعجاب
-  Future<bool> unlikeVideo(String videoId, String uid) async {
-    try {
-      await _firestore
-          .collection('videos')
-          .doc(videoId)
-          .collection('likes')
-          .doc(uid)
-          .delete();
-
-      // تقليل عدد الإعجابات
-      await _firestore.collection('videos').doc(videoId).update({
-        'likes': FieldValue.increment(-1),
-      });
-
-      return true;
-    } catch (e) {
-      print('خطأ في إلغاء الإعجاب: $e');
       return false;
     }
   }
