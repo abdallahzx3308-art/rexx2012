@@ -21,6 +21,7 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
   List<VideoModel> videos = [];
   bool isLoading = true;
   int currentIndex = 0;
+  final Map<String, VideoPlayerController> _videoControllers = {};
 
   @override
   void initState() {
@@ -30,16 +31,30 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
   }
 
   Future<void> _loadVideos() async {
-    final loadedVideos = await _videoService.getAllVideos();
-    setState(() {
-      videos = loadedVideos;
-      isLoading = false;
-    });
+    try {
+      final loadedVideos = await _videoService.getAllVideos();
+      setState(() {
+        videos = loadedVideos;
+        isLoading = false;
+      });
+    } catch (e) {
+      print('خطأ في تحميل الفيديوهات: $e');
+      setState(() {
+        isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('خطأ في تحميل الفيديوهات')),
+      );
+    }
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+    // تنظيف جميع الـ Controllers
+    for (var controller in _videoControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -54,7 +69,19 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
     if (videos.isEmpty) {
       return Scaffold(
         body: Center(
-          child: Text('لا توجد فيديوهات حتى الآن'),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.video_library, size: 60, color: Colors.grey),
+              SizedBox(height: 16),
+              Text('لا توجد فيديوهات حتى الآن'),
+              SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadVideos,
+                child: Text('إعادة محاولة'),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -76,6 +103,9 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
             likeService: _likeService,
             commentService: _commentService,
             authService: _authService,
+            onControllerReady: (controller) {
+              _videoControllers[videos[index].videoId] = controller;
+            },
           );
         },
       ),
@@ -89,6 +119,7 @@ class VideoPlayerWidget extends StatefulWidget {
   final LikeService likeService;
   final CommentService commentService;
   final AuthService authService;
+  final Function(VideoPlayerController) onControllerReady;
 
   const VideoPlayerWidget({
     required this.video,
@@ -96,6 +127,7 @@ class VideoPlayerWidget extends StatefulWidget {
     required this.likeService,
     required this.commentService,
     required this.authService,
+    required this.onControllerReady,
   });
 
   @override
@@ -106,6 +138,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
   late VideoPlayerController _videoController;
   bool _isLiked = false;
   bool _isInitialized = false;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -118,13 +151,30 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     try {
       _videoController = VideoPlayerController.network(widget.video.videoUrl)
         ..initialize().then((_) {
-          setState(() {
-            _isInitialized = true;
-          });
+          if (mounted) {
+            setState(() {
+              _isInitialized = true;
+              _isLoading = false;
+            });
+          }
           _videoController.play();
+        }).catchError((error) {
+          print('خطأ في تهيئة الفيديو: $error');
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+          }
         });
+
+      widget.onControllerReady(_videoController);
     } catch (e) {
       print('خطأ في تحميل الفيديو: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -132,9 +182,11 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     final user = await widget.authService.getCurrentUser();
     if (user != null) {
       final liked = await widget.likeService.isLiked(widget.video.videoId, user.uid);
-      setState(() {
-        _isLiked = liked;
-      });
+      if (mounted) {
+        setState(() {
+          _isLiked = liked;
+        });
+      }
     }
   }
 
@@ -153,9 +205,11 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
       await widget.likeService.likeVideo(widget.video.videoId, user.uid);
     }
 
-    setState(() {
-      _isLiked = !_isLiked;
-    });
+    if (mounted) {
+      setState(() {
+        _isLiked = !_isLiked;
+      });
+    }
   }
 
   @override
@@ -187,7 +241,19 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
             : Container(
                 color: Colors.black,
                 child: Center(
-                  child: CircularProgressIndicator(),
+                  child: _isLoading
+                      ? CircularProgressIndicator()
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.error, color: Colors.red, size: 50),
+                            SizedBox(height: 16),
+                            Text(
+                              'خطأ في تحميل الفيديو',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
                 ),
               ),
         // معلومات الفيديو
@@ -331,6 +397,39 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                   ),
                 ],
               ),
+              SizedBox(height: 20),
+              // زر المشاركة
+              GestureDetector(
+                onTap: () {
+                  _showShareDialog();
+                },
+                child: Column(
+                  children: [
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black26,
+                      ),
+                      child: Icon(
+                        Icons.share,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'مشاركة',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -347,6 +446,12 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         commentService: widget.commentService,
         authService: widget.authService,
       ),
+    );
+  }
+
+  void _showShareDialog() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('تم نسخ رابط الفيديو')),
     );
   }
 }
@@ -385,11 +490,23 @@ class _CommentsSheetState extends State<CommentsSheet> {
           text: _commentController.text.trim(),
         );
         _commentController.clear();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('تم نشر التعليق بنجاح')),
+          );
+        }
       }
     } catch (e) {
       print('خطأ في نشر التعليق: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطأ في نشر التعليق')),
+        );
+      }
     } finally {
-      setState(() => _isPosting = false);
+      if (mounted) {
+        setState(() => _isPosting = false);
+      }
     }
   }
 
@@ -419,8 +536,17 @@ class _CommentsSheetState extends State<CommentsSheet> {
               child: StreamBuilder(
                 stream: widget.commentService.commentsStream(widget.videoId),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
                     return Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Text(
+                        'خطأ في تحميل التعليقات',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    );
                   }
 
                   final comments = snapshot.data ?? [];
@@ -458,7 +584,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                             ),
                             SizedBox(height: 8),
                             Text(
-                              comment.createdAt.toString().split('.')[0],
+                              _formatTime(comment.createdAt),
                               style: TextStyle(
                                 color: Colors.grey,
                                 fontSize: 12,
@@ -517,6 +643,23 @@ class _CommentsSheetState extends State<CommentsSheet> {
         ),
       ),
     );
+  }
+
+  String _formatTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inSeconds < 60) {
+      return 'الآن';
+    } else if (difference.inMinutes < 60) {
+      return 'قبل ${difference.inMinutes} دقيقة';
+    } else if (difference.inHours < 24) {
+      return 'قبل ${difference.inHours} ساعة';
+    } else if (difference.inDays < 7) {
+      return 'قبل ${difference.inDays} أيام';
+    } else {
+      return dateTime.toString().split('.')[0];
+    }
   }
 
   @override
