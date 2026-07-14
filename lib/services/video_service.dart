@@ -89,9 +89,13 @@ class VideoService {
     }
   }
 
-  // البحث عن الفيديوهات
+  // البحث عن الفيديوهات مع معالجة أفضل للأخطاء
   Future<List<VideoModel>> searchVideos(String query) async {
     try {
+      if (query.trim().isEmpty) {
+        return [];
+      }
+
       // البحث في العنوان والوصف
       final snapshot = await _firestore.collection('videos').get();
 
@@ -104,7 +108,7 @@ class VideoService {
 
       return results;
     } catch (e) {
-      print('خطأ في البح��: $e');
+      print('خطأ في البحث: $e');
       return [];
     }
   }
@@ -133,7 +137,7 @@ class VideoService {
     }
   }
 
-  // زيادة عدد المشاهدات
+  // زيادة عدد المشاهدات - مع معالجة أفضل للأخطاء
   Future<void> incrementViews(String videoId) async {
     try {
       await _firestore.collection('videos').doc(videoId).update({
@@ -178,5 +182,16 @@ class VideoService {
       print('خطأ في جلب الفيديو: $e');
     }
     return null;
+  }
+
+  // تحديث عدد التعليقات
+  Future<void> incrementComments(String videoId) async {
+    try {
+      await _firestore.collection('videos').doc(videoId).update({
+        'comments': FieldValue.increment(1),
+      });
+    } catch (e) {
+      print('خطأ في تحديث عدد التعليقات: $e');
+    }
   }
 }
